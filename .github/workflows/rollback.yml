@@ -1,0 +1,72 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to rollback'
+        required: true
+        type: choice
+        options:
+          - backend
+          - frontend
+          - all
+      version:
+        description: 'Version to rollback to'
+        required: true
+        default: 'latest'
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        default: 'development'
+        options:
+          - development
+          - staging
+          - production
+
+jobs:
+  rollback:
+    name: 🔄 Rollback ${{ github.event.inputs.service }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: 🔄 Rollback Backend
+        if: github.event.inputs.service == 'backend' || github.event.inputs.service == 'all'
+        run: |
+          kubectl set image deployment/backend-deployment \
+            backend=${{ secrets.DOCKER_USERNAME }}/crud-backend:${{ github.event.inputs.version }} \
+            -n crud-app
+          
+          kubectl rollout status deployment/backend-deployment -n crud-app --timeout=180s
+
+      - name: 🔄 Rollback Frontend
+        if: github.event.inputs.service == 'frontend' || github.event.inputs.service == 'all'
+        run: |
+          kubectl set image deployment/frontend-deployment \
+            frontend=${{ secrets.DOCKER_USERNAME }}/crud-frontend:${{ github.event.inputs.version }} \
+            -n crud-app
+          
+          kubectl rollout status deployment/frontend-deployment -n crud-app --timeout=180s
+
+      - name: ✅ Verify rollback
+        run: |
+          echo "==================================="
+          echo "Rollback Status"
+          echo "==================================="
+          kubectl get pods -n crud-app
+          kubectl get deployments -n crud-app
+
+      - name: 📝 Rollback summary
+        run: |
+          echo "✅ Rollback completed!"
+          echo "Service: ${{ github.event.inputs.service }}"
+          echo "Version: ${{ github.event.inputs.version }}"
+          echo "Environment: ${{ github.event.inputs.environment }}"

@@ -1,0 +1,86 @@
+name: Deploy-Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      version:
+        description: 'Image version/tag to deploy'
+        required: true
+        default: 'latest'
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  NAMESPACE: crud-app
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
+
+      - name: ☸️ Configure kubectl
+        run: |
+          kubectl version --client
+          kubectl cluster-info
+
+      - name: 📝 Update manifests
+        run: |
+          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/frontend-deployment.yaml
+
+      - name: 🚀 Deploy application
+        run: |
+          # Apply all manifests
+          kubectl apply -f k8s/base/namespace.yaml
+          kubectl apply -f k8s/base/postgres-secret.yaml
+          kubectl apply -f k8s/base/postgres-configmap.yaml
+          kubectl apply -f k8s/base/backend-configmap.yaml
+          kubectl apply -f k8s/base/postgres-pvc.yaml
+          kubectl apply -f k8s/base/postgres-deployment.yaml
+          kubectl apply -f k8s/base/postgres-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=postgres -n ${{ env.NAMESPACE }} --timeout=180s
+          
+          kubectl apply -f k8s/base/backend-deployment.yaml
+          kubectl apply -f k8s/base/backend-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=backend -n ${{ env.NAMESPACE }} --timeout=180s
+          
+          kubectl apply -f k8s/base/frontend-deployment.yaml
+          kubectl apply -f k8s/base/frontend-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=frontend -n ${{ env.NAMESPACE }} --timeout=180s
+
+      - name: ✅ Verify deployment
+        run: |
+          kubectl get all -n ${{ env.NAMESPACE }}
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+
+      - name: 📊 Deployment info
+        run: |
+          echo "✅ Deployment successful!"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Version: ${{ github.event.inputs.version }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"

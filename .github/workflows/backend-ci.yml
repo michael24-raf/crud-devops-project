@@ -1,0 +1,89 @@
+name: Backend-CI
+
+on:
+  push:
+    branches: [ main, develop, feature/** ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    name: 🧪 Backend Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 🔍 Lint
+        working-directory: ./backend
+        run: npm run lint || echo "Skipping lint"
+
+      - name: 🧪 Run tests
+        working-directory: ./backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: test_db
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          NODE_ENV: test
+        run: npm test
+
+      - name: 📊 Generate coverage report
+        working-directory: ./backend
+        run: npm run test:coverage || echo "No coverage script"
+        continue-on-error: true
+
+  build:
+    name: 🏗️ Build Check
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐳 Build Docker image
+        run: |
+          docker build -t backend-test:${{ github.sha }} ./backend
+
+      - name: 🔍 Check image size
+        run: |
+          size=$(docker images backend-test:${{ github.sha }} --format "{{.Size}}")
+          echo "Image size: $size"

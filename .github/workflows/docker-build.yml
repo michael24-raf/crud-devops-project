@@ -1,0 +1,69 @@
+name: Docker-Build
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+jobs:
+  build-and-push:
+    name: 🐳 Build & Push Images
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        include:
+          - context: ./backend
+            image: crud-backend
+            dockerfile: Dockerfile
+          - context: ./frontend
+            image: crud-frontend
+            dockerfile: Dockerfile
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔐 Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: 🏗️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 📝 Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 🐳 Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.DOCKER_USERNAME }}/${{ matrix.image }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_USERNAME }}/${{ matrix.image }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+      - name: 📊 Image digest
+        run: echo ${{ steps.build.outputs.digest }}
