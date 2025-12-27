@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+
+# Production build
+dist
+dist-ssr
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crud-app
+  labels:
+    name: crud-app
+    environment: development

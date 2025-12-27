@@ -1,0 +1,194 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header */
+.app-header {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.app-header h1 {
+  color: #333;
+  font-size: 2rem;
+}
+
+/* API Status */
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.api-status.checking {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.api-status.online {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.api-status.offline {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.api-status.online .status-dot {
+  background: #10b981;
+}
+
+.api-status.offline .status-dot {
+  background: #ef4444;
+}
+
+.api-status.checking .status-dot {
+  background: #f59e0b;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Main */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.form-section,
+.list-section {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+/* Error Banner */
+.error-banner {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 15px 20px;
+  border-radius: 10px;
+  border-left: 4px solid #ef4444;
+  font-weight: 500;
+}
+
+/* Offline Message */
+.offline-message {
+  background: white;
+  padding: 50px;
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.offline-message h2 {
+  color: #ef4444;
+  margin-bottom: 20px;
+}
+
+.offline-message code {
+  display: block;
+  background: #f3f4f6;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 20px 0;
+  font-family: 'Courier New', monospace;
+  color: #1f2937;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #4b5563;
+}
+
+/* Footer */
+.app-footer {
+  text-align: center;
+  padding: 30px;
+  color: white;
+  font-size: 0.9rem;
+  margin-top: 30px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app-header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .app {
+    padding: 10px;
+  }
+  
+  .form-section,
+  .list-section {
+    padding: 20px;
+  }
+}
