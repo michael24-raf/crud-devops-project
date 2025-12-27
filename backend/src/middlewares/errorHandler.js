@@ -1,5 +1,5 @@
 // Middleware de gestion globale des erreurs
-const errorHandler = (err, req, res, next) => {
+const errorHandler = (err, req, res, _next) => {
   console.error('🔥 Erreur:', err);
 
   // Erreur de validation Sequelize

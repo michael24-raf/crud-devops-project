@@ -18,7 +18,7 @@ on:
         default: 'latest'
 
 env:
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_USERNAME: ${{ secrets.michael1723 }}
   NAMESPACE: crud-app
 
 jobs:
@@ -45,8 +45,8 @@ jobs:
 
       - name: 📝 Update manifests
         run: |
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.michael1723 }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.michael1723 }}|g" k8s/base/frontend-deployment.yaml
           sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/backend-deployment.yaml
           sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/frontend-deployment.yaml
 
