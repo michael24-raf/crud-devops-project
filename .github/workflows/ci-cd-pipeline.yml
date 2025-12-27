@@ -13,7 +13,7 @@ env:
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   BACKEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/crud-backend
   FRONTEND_IMAGE: ${{ secrets.DOCKER_USERNAME }}/crud-frontend
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
 
 jobs:
   # ==========================================
@@ -40,7 +40,7 @@ jobs:
 
       - name: 🔍 Lint code
         working-directory: ./backend
-        run: npm run lint || echo "No lint script found"
+        run: npx eslint . --ext .js
 
       - name: 🧪 Run tests
         working-directory: ./backend
