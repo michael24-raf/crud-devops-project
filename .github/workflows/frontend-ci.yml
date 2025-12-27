@@ -18,11 +18,11 @@ jobs:
     
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [20]
     
     steps:
       - name: 📥 Checkout
-        uses: actions/upload-artifact@v4
+        uses: actions/checkout@v4
 
       - name: 🟢 Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -53,7 +53,7 @@ jobs:
 
       - name: 🧪 Run tests
         working-directory: ./frontend
-        run: npm test || echo "No test script found"
+        run: npm test
 
   lighthouse:
     name: 🔍 Lighthouse Audit
@@ -68,7 +68,7 @@ jobs:
       - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: 📦 Install and build
         working-directory: ./frontend
