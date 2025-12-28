@@ -1,0 +1,337 @@
+name: Security-Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight
+  workflow_dispatch:  # Manual trigger
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+jobs:
+  # ==========================================
+  # JOB 1: Dependency Vulnerability Scan
+  # ==========================================
+  dependency-scan:
+    name: 🔍 Dependency Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install Backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 📦 Install Frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 🔍 Audit Backend dependencies
+        working-directory: ./backend
+        run: |
+          npm audit --json > backend-audit.json || true
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: 🔍 Audit Frontend dependencies
+        working-directory: ./frontend
+        run: |
+          npm audit --json > frontend-audit.json || true
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: 📤 Upload audit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: npm-audit-results
+          path: |
+            backend/backend-audit.json
+            frontend/frontend-audit.json
+          retention-days: 30
+
+      # Optional: Snyk scan (requires SNYK_TOKEN secret)
+      - name: 🔍 Snyk scan - Backend
+        if: ${{ secrets.SNYK_TOKEN }}
+        uses: snyk/actions/node@v2
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=backend/package.json
+        continue-on-error: true
+
+      - name: 🔍 Snyk scan - Frontend
+        if: ${{ secrets.SNYK_TOKEN }}
+        uses: snyk/actions/node@v2
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=frontend/package.json
+        continue-on-error: true
+
+  # ==========================================
+  # JOB 2: Docker Image Security Scan
+  # ==========================================
+  docker-scan:
+    name: 🐳 Docker Image Scan
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service: [backend, frontend]
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Build ${{ matrix.service }} image
+        run: |
+          docker build -t ${{ matrix.service }}-scan:latest ./${{ matrix.service }}
+
+      - name: 🔍 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.service }}-scan:latest
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: 📤 Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
+          category: trivy-${{ matrix.service }}
+
+      - name: 🔍 Run Trivy scan (table format for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.service }}-scan:latest
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+
+      - name: 📊 Generate vulnerability report
+        if: always()
+        run: |
+          echo "## 🔍 Security Scan Results - ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          docker run --rm aquasec/trivy:latest image --severity CRITICAL,HIGH --format json ${{ matrix.service }}-scan:latest | \
+            jq -r '.Results[] | select(.Vulnerabilities) | .Vulnerabilities[] | "- \(.VulnerabilityID): \(.Title) (Severity: \(.Severity))"' >> $GITHUB_STEP_SUMMARY || echo "No vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================
+  # JOB 3: Code Security Analysis (CodeQL)
+  # ==========================================
+  code-scan:
+    name: 🔒 Code Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔒 Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: 🏗️ Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: 🔍 Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ==========================================
+  # JOB 4: Secret Detection
+  # ==========================================
+  secret-scan:
+    name: 🔐 Secret Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      - name: 🔍 GitLeaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # ==========================================
+  # JOB 5: YAML & Dockerfile Linting
+  # ==========================================
+  lint-configs:
+    name: 🔍 Configuration Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Lint Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: backend/Dockerfile
+          failure-threshold: warning
+        continue-on-error: true
+
+      - name: 🔍 Lint Frontend Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+          failure-threshold: warning
+        continue-on-error: true
+
+      - name: 🔍 Lint Kubernetes manifests
+        run: |
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
+          find k8s/base -name "*.yaml" -exec kubeval {} \;
+
+      - name: 🔍 Lint YAML files
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: k8s/
+          config_file: .yamllint.yml
+          strict: false
+        continue-on-error: true
+
+  # ==========================================
+  # JOB 6: OWASP Dependency Check
+  # ==========================================
+  owasp-scan:
+    name: 🛡️ OWASP Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 📦 Install dependencies
+        run: |
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      - name: 🛡️ OWASP Dependency-Check Backend
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'crud-backend'
+          path: './backend'
+          format: 'HTML'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+        continue-on-error: true
+
+      - name: 🛡️ OWASP Dependency-Check Frontend
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'crud-frontend'
+          path: './frontend'
+          format: 'HTML'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+        continue-on-error: true
+
+      - name: 📤 Upload OWASP reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: owasp-reports
+          path: reports/
+          retention-days: 30
+
+  # ==========================================
+  # JOB 7: Security Summary
+  # ==========================================
+  security-summary:
+    name: 📊 Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, docker-scan, code-scan, secret-scan, lint-configs]
+    if: always()
+    
+    steps:
+      - name: 📊 Generate security summary
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Scan Results:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 📦 Dependency Scan | ${{ needs.dependency-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Docker Image Scan | ${{ needs.docker-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔒 Code Security Scan | ${{ needs.code-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔐 Secret Detection | ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 Configuration Linting | ${{ needs.lint-configs.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommendations:" >> $GITHUB_STEP_SUMMARY
+          echo "- Review all HIGH and CRITICAL vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- Update dependencies with known vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- Check Docker images for outdated base images" >> $GITHUB_STEP_SUMMARY
+          echo "- Ensure no secrets are committed to the repository" >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## 🔒 Security Scan Results
+
+            | Scan Type | Status |
+            |-----------|--------|
+            | 📦 Dependency Scan | ${{ needs.dependency-scan.result }} |
+            | 🐳 Docker Image Scan | ${{ needs.docker-scan.result }} |
+            | 🔒 Code Security Scan | ${{ needs.code-scan.result }} |
+            | 🔐 Secret Detection | ${{ needs.secret-scan.result }} |
+            | 🔍 Configuration Linting | ${{ needs.lint-configs.result }} |
+
+            Please review the security scan results in the Actions tab.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
