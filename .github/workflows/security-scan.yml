@@ -64,7 +64,7 @@ jobs:
       # Optional: Snyk scan (requires SNYK_TOKEN secret)
       - name: 🔍 Snyk scan - Backend
         if: env.SNYK_TOKEN != ''
-        uses: snyk/actions/node@v2
+        uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -73,7 +73,7 @@ jobs:
 
       - name: 🔍 Snyk scan - Frontend
         if: env.SNYK_TOKEN != ''
-        uses: snyk/actions/node@v2
+        uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
