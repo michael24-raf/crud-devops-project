@@ -12,7 +12,7 @@ on:
           - frontend
           - all
       version:
-        description: 'Version to rollback to'
+        description: 'Docker image version to deploy'
         required: true
         default: 'latest'
       environment:
@@ -25,48 +25,91 @@ on:
           - staging
           - production
 
+env:
+  NAMESPACE: crud-app
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
 jobs:
   rollback:
     name: 🔄 Rollback ${{ github.event.inputs.service }}
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
-    
+
     steps:
-      - name: 📥 Checkout
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
       - name: 🔧 Setup Minikube
         uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
 
+      - name: ☸️ Verify Kubernetes cluster
+        run: |
+          kubectl version --client
+          kubectl cluster-info
+
+      # 🔹 IMPORTANT : créer le namespace (Minikube est vide)
+      - name: 🏗️ Ensure namespace exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # 🔹 Appliquer les ressources de base (obligatoire)
+      - name: 📦 Apply base manifests
+        run: |
+          kubectl apply -f k8s/base/postgres-secret.yaml
+          kubectl apply -f k8s/base/postgres-configmap.yaml
+          kubectl apply -f k8s/base/backend-configmap.yaml
+          kubectl apply -f k8s/base/postgres-pvc.yaml
+          kubectl apply -f k8s/base/postgres-deployment.yaml
+          kubectl apply -f k8s/base/postgres-service.yaml
+
+      - name: ⏳ Wait for Postgres
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=postgres \
+            -n ${{ env.NAMESPACE }} \
+            --timeout=180s
+
+      # 🔹 Rollback Backend = redeploy image
       - name: 🔄 Rollback Backend
         if: github.event.inputs.service == 'backend' || github.event.inputs.service == 'all'
         run: |
+          kubectl apply -f k8s/base/backend-deployment.yaml
           kubectl set image deployment/backend-deployment \
-            backend=${{ secrets.DOCKER_USERNAME }}/crud-backend:${{ github.event.inputs.version }} \
-            -n crud-app
-          
-          kubectl rollout status deployment/backend-deployment -n crud-app --timeout=180s
+            backend=${{ env.DOCKER_USERNAME }}/crud-backend:${{ github.event.inputs.version }} \
+            -n ${{ env.NAMESPACE }}
 
+          kubectl rollout status deployment/backend-deployment \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+      # 🔹 Rollback Frontend = redeploy image
       - name: 🔄 Rollback Frontend
         if: github.event.inputs.service == 'frontend' || github.event.inputs.service == 'all'
         run: |
+          kubectl apply -f k8s/base/frontend-deployment.yaml
           kubectl set image deployment/frontend-deployment \
-            frontend=${{ secrets.DOCKER_USERNAME }}/crud-frontend:${{ github.event.inputs.version }} \
-            -n crud-app
-          
-          kubectl rollout status deployment/frontend-deployment -n crud-app --timeout=180s
+            frontend=${{ env.DOCKER_USERNAME }}/crud-frontend:${{ github.event.inputs.version }} \
+            -n ${{ env.NAMESPACE }}
+
+          kubectl rollout status deployment/frontend-deployment \
+            -n ${{ env.NAMESPACE }} --timeout=180s
 
       - name: ✅ Verify rollback
         run: |
-          echo "==================================="
-          echo "Rollback Status"
-          echo "==================================="
-          kubectl get pods -n crud-app
-          kubectl get deployments -n crud-app
+          echo "=============================="
+          echo "📦 Rollback status"
+          echo "=============================="
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
 
       - name: 📝 Rollback summary
         run: |
-          echo "✅ Rollback completed!"
-          echo "Service: ${{ github.event.inputs.service }}"
-          echo "Version: ${{ github.event.inputs.version }}"
-          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "✅ Rollback completed successfully"
+          echo "Service     : ${{ github.event.inputs.service }}"
+          echo "Version     : ${{ github.event.inputs.version }}"
+          echo "Environment : ${{ github.event.inputs.environment }}"
+          echo "Namespace   : ${{ env.NAMESPACE }}"
