@@ -1,3 +1,26 @@
+## 🔒 Security
+
+This project implements comprehensive security scanning:
+
+- **Dependency Scanning**: Automated vulnerability checks for npm packages
+- **Container Scanning**: Docker image vulnerability analysis with Trivy
+- **Code Analysis**: Static code analysis with CodeQL
+- **Secret Detection**: Prevents accidental secret commits
+- **Configuration Linting**: Validates Kubernetes and Docker configs
+
+### Security Scan Status
+
+![Security Scan](https://github.com/michael24-raf/crud-devops-project/workflows/Security-Scan/badge.svg)
+
+### Running Security Scans Locally
+```bash
+# Audit dependencies
+npm audit
+
+# Scan Docker images
+docker run --rm aquasec/trivy:latest image your-image:tag
+```
+
 # 🚀 CRUD DevOps - Projet CI/CD Complet
 
 ![CI/CD Status](https://github.com/michael24-raf/crud-devops-project/workflows/CI-CD-Pipeline/badge.svg)
