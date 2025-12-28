@@ -11,6 +11,7 @@ on:
 
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
 jobs:
   # ==========================================
@@ -62,7 +63,7 @@ jobs:
 
       # Optional: Snyk scan (requires SNYK_TOKEN secret)
       - name: 🔍 Snyk scan - Backend
-        if: ${{ secrets.SNYK_TOKEN }}
+        if: env.SNYK_TOKEN != ''
         uses: snyk/actions/node@v2
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -71,7 +72,7 @@ jobs:
         continue-on-error: true
 
       - name: 🔍 Snyk scan - Frontend
-        if: ${{ secrets.SNYK_TOKEN }}
+        if: env.SNYK_TOKEN != ''
         uses: snyk/actions/node@v2
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -105,7 +106,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-${{ matrix.service }}-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
+          exit-code: '0'  # Don't fail the build
           ignore-unfixed: true
 
       - name: 📤 Upload Trivy results to GitHub Security
@@ -175,7 +176,7 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history for better detection
 
       - name: 🔍 TruffleHog Secret Scan
         uses: trufflesecurity/trufflehog@main
