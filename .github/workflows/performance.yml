@@ -1,0 +1,303 @@
+name: Performance-Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to test'
+        required: true
+        type: choice
+        default: 'backend'
+        options:
+          - backend
+          - frontend
+          - both
+      duration:
+        description: 'Test duration (e.g., 30s, 1m, 5m)'
+        required: true
+        default: '1m'
+      users:
+        description: 'Virtual users'
+        required: true
+        default: '50'
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+jobs:
+  # ==========================================
+  # JOB 1: Setup Test Environment
+  # ==========================================
+  setup:
+    name: 🔧 Setup Test Environment
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
+
+      - name: 📝 Update manifests
+        run: |
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+
+      - name: 🚀 Deploy application
+        run: |
+          kubectl apply -f k8s/base/namespace.yaml
+          kubectl apply -f k8s/base/postgres-secret.yaml
+          kubectl apply -f k8s/base/postgres-configmap.yaml
+          kubectl apply -f k8s/base/backend-configmap.yaml
+          kubectl apply -f k8s/base/postgres-pvc.yaml
+          kubectl apply -f k8s/base/postgres-deployment.yaml
+          kubectl apply -f k8s/base/postgres-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
+          
+          kubectl apply -f k8s/base/backend-deployment.yaml
+          kubectl apply -f k8s/base/backend-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
+          
+          kubectl apply -f k8s/base/frontend-deployment.yaml
+          kubectl apply -f k8s/base/frontend-service.yaml
+          
+          kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
+
+      - name: 🌐 Expose services
+        run: |
+          kubectl port-forward -n crud-app service/backend-service 5000:5000 &
+          kubectl port-forward -n crud-app service/frontend-service 3000:80 &
+          sleep 10
+
+  # ==========================================
+  # JOB 2: Backend Performance Test
+  # ==========================================
+  test-backend:
+    name: ⚡ Backend Performance Test
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event.inputs.target == 'backend' || github.event.inputs.target == 'both' || github.event_name == 'schedule'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: 🌐 Port forward
+        run: |
+          kubectl port-forward -n crud-app service/backend-service 5000:5000 &
+          sleep 5
+
+      - name: ⚡ Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: 🧪 Create k6 test script
+        run: |
+          cat > backend-test.js << 'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+          import { Rate } from 'k6/metrics';
+
+          const errorRate = new Rate('errors');
+
+          export const options = {
+            stages: [
+              { duration: '30s', target: ${{ github.event.inputs.users || 50 }} },
+              { duration: '${{ github.event.inputs.duration || '1m' }}', target: ${{ github.event.inputs.users || 50 }} },
+              { duration: '30s', target: 0 },
+            ],
+            thresholds: {
+              http_req_duration: ['p(95)<500', 'p(99)<1000'],
+              http_req_failed: ['rate<0.1'],
+              errors: ['rate<0.1'],
+            },
+          };
+
+          const BASE_URL = 'http://localhost:5000';
+
+          export default function () {
+            // Test 1: Health check
+            let healthRes = http.get(`${BASE_URL}/health`);
+            check(healthRes, {
+              'health check status 200': (r) => r.status === 200,
+              'health check has success': (r) => r.json('success') === true,
+            }) || errorRate.add(1);
+
+            sleep(1);
+
+            // Test 2: Get all users
+            let usersRes = http.get(`${BASE_URL}/api/users`);
+            check(usersRes, {
+              'get users status 200': (r) => r.status === 200,
+              'get users returns array': (r) => Array.isArray(r.json('data')),
+            }) || errorRate.add(1);
+
+            sleep(1);
+
+            // Test 3: Create user
+            const payload = JSON.stringify({
+              name: `Test User ${Date.now()}`,
+              email: `test${Date.now()}@example.com`,
+              age: Math.floor(Math.random() * 50) + 20,
+            });
+
+            const params = {
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            };
+
+            let createRes = http.post(`${BASE_URL}/api/users`, payload, params);
+            check(createRes, {
+              'create user status 201': (r) => r.status === 201,
+              'create user success': (r) => r.json('success') === true,
+            }) || errorRate.add(1);
+
+            sleep(1);
+          }
+
+          export function handleSummary(data) {
+            return {
+              'stdout': textSummary(data, { indent: ' ', enableColors: true }),
+            };
+          }
+
+          function textSummary(data, options) {
+            return JSON.stringify(data, null, 2);
+          }
+          EOF
+
+      - name: 🚀 Run k6 load test
+        run: |
+          k6 run backend-test.js --out json=backend-results.json
+
+      - name: 📊 Parse and display results
+        if: always()
+        run: |
+          echo "## ⚡ Backend Performance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Virtual Users: ${{ github.event.inputs.users || 50 }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f backend-results.json ]; then
+            echo "**Results:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.metrics | to_entries[] | "- \(.key): \(.value.values | to_entries[] | "\(.key)=\(.value)")"' backend-results.json >> $GITHUB_STEP_SUMMARY || echo "Results processing error"
+          fi
+
+      - name: 📤 Upload results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: backend-performance-results
+          path: backend-results.json
+          retention-days: 30
+
+  # ==========================================
+  # JOB 3: Frontend Performance Test
+  # ==========================================
+  test-frontend:
+    name: 🎨 Frontend Performance Test
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event.inputs.target == 'frontend' || github.event.inputs.target == 'both'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: 🌐 Port forward
+        run: |
+          kubectl port-forward -n crud-app service/frontend-service 3000:80 &
+          sleep 5
+
+      - name: 📦 Install Lighthouse CI
+        run: npm install -g @lhci/cli
+
+      - name: 🔍 Run Lighthouse CI
+        run: |
+          lhci autorun --collect.url=http://localhost:3000 --collect.numberOfRuns=3
+        continue-on-error: true
+
+      - name: 📊 Generate report
+        if: always()
+        run: |
+          echo "## 🎨 Frontend Performance Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Lighthouse audit completed for http://localhost:3000" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================
+  # JOB 4: Generate Performance Report
+  # ==========================================
+  report:
+    name: 📊 Generate Report
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: always()
+    
+    steps:
+      - name: 📥 Download backend results
+        uses: actions/download-artifact@v3
+        with:
+          name: backend-performance-results
+        continue-on-error: true
+
+      - name: 📊 Generate summary report
+        run: |
+          echo "## 📊 Performance Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test completed on:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend Test: ${{ needs.test-backend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend Test: ${{ needs.test-frontend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: ${{ github.event.inputs.target || 'backend' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Virtual Users: ${{ github.event.inputs.users || '50' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 Comment on commit
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const message = `## ⚡ Performance Test Results
+            
+            **Backend:** ${{ needs.test-backend.result }}
+            **Frontend:** ${{ needs.test-frontend.result }}
+            
+            View detailed results in the Actions tab.`;
+            
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: message
+            });
+        continue-on-error: true
