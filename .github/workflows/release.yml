@@ -234,6 +234,9 @@ jobs:
     name: 🎉 Create Release
     runs-on: ubuntu-latest
     needs: [validate, test, build-docker, changelog]
+    permissions:
+        contents: write
+        packages: write
     
     steps:
       - name: 📥 Checkout code
