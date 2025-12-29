@@ -203,7 +203,7 @@ jobs:
           fi
 
       - name: 📤 Upload results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-performance-results
@@ -262,7 +262,7 @@ jobs:
     
     steps:
       - name: 📥 Download backend results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: backend-performance-results
         continue-on-error: true
