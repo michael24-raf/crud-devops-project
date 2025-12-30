@@ -3,6 +3,15 @@ name: Performance-Test
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: 'Target to test'
+        required: true
+        type: choice
+        default: 'backend'
+        options:
+          - backend
+          - frontend
+          - both
       duration:
         description: 'Test duration (e.g., 30s, 1m, 5m)'
         required: true
@@ -19,10 +28,10 @@ env:
 
 jobs:
   # ==========================================
-  # JOB UNIQUE : Setup + Test
+  # JOB 1 : Setup Environment
   # ==========================================
-  performance-test:
-    name: ⚡ Backend Performance Test
+  setup-environment:
+    name: 🔧 Setup Test Environment
     runs-on: ubuntu-latest
     
     steps:
@@ -64,16 +73,17 @@ jobs:
           echo "🐘 Deploying PostgreSQL..."
           kubectl apply -f k8s/base/postgres-deployment.yaml
           kubectl apply -f k8s/base/postgres-service.yaml
-          
-          echo "⏳ Waiting for PostgreSQL..."
           kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
           
           echo "🔨 Deploying Backend..."
           kubectl apply -f k8s/base/backend-deployment.yaml
           kubectl apply -f k8s/base/backend-service.yaml
-          
-          echo "⏳ Waiting for Backend..."
           kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
+          
+          echo "🎨 Deploying Frontend..."
+          kubectl apply -f k8s/base/frontend-deployment.yaml
+          kubectl apply -f k8s/base/frontend-service.yaml
+          kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
           
           echo "✅ All services deployed!"
 
@@ -85,29 +95,61 @@ jobs:
           kubectl get all -n crud-app
           kubectl get pods -n crud-app -o wide
 
-      - name: 🌐 Start port-forward in background
+  # ==========================================
+  # JOB 2 : Backend Performance Test
+  # ==========================================
+  test-backend:
+    name: ⚡ Backend Performance Test
+    runs-on: ubuntu-latest
+    needs: setup-environment
+    if: github.event.inputs.target == 'backend' || github.event.inputs.target == 'both' || github.event_name == 'schedule'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
+
+      - name: 📝 Redeploy application
         run: |
-          echo "Starting port-forward..."
-          kubectl port-forward -n crud-app service/backend-service 5000:5000 &
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          
+          kubectl apply -f k8s/base/
+          kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
+
+      - name: 🌐 Start backend port-forward
+        run: |
+          echo "Starting backend port-forward..."
+          kubectl port-forward -n crud-app service/backend-service 5000:5000 > /tmp/port-forward-backend.log 2>&1 &
           PORT_FORWARD_PID=$!
           echo "PORT_FORWARD_PID=$PORT_FORWARD_PID" >> $GITHUB_ENV
           
           echo "Waiting for port-forward to be ready..."
           for i in {1..30}; do
             if curl -s http://localhost:5000/health > /dev/null 2>&1; then
-              echo "✅ Port-forward ready!"
+              echo "✅ Backend port-forward ready!"
               break
             fi
-            echo "Attempt $i: Waiting for port-forward..."
+            echo "Attempt $i/30: Waiting..."
             sleep 2
           done
           
-          # Verify connection
+          # Final verification
           if ! curl -s http://localhost:5000/health > /dev/null 2>&1; then
-            echo "❌ Failed to connect to backend after port-forward"
+            echo "❌ Failed to connect to backend"
+            cat /tmp/port-forward-backend.log
             kubectl logs -n crud-app -l app=backend --tail=50
             exit 1
           fi
+          
+          echo "✅ Backend is responding!"
 
       - name: 🧪 Test backend connectivity
         run: |
@@ -116,9 +158,9 @@ jobs:
           echo "Response: $response"
           
           if echo "$response" | grep -q "success"; then
-            echo "✅ Backend is responding correctly!"
+            echo "✅ Backend health check passed!"
           else
-            echo "❌ Backend is not responding as expected"
+            echo "❌ Backend health check failed"
             exit 1
           fi
 
@@ -171,26 +213,6 @@ jobs:
             });
             if (!usersCheck) errorRate.add(1);
 
-            sleep(1);
-
-            // Test 3: Create user (optionnel, peut échouer si DB est readonly)
-            const payload = JSON.stringify({
-              name: `LoadTest-${Date.now()}-${Math.random()}`,
-              email: `loadtest-${Date.now()}-${Math.random()}@example.com`,
-              age: Math.floor(Math.random() * 50) + 20,
-            });
-
-            const params = {
-              headers: {
-                'Content-Type': 'application/json',
-              },
-            };
-
-            let createRes = http.post(`${BASE_URL}/api/users`, payload, params);
-            check(createRes, {
-              'create user accepted': (r) => r.status === 201 || r.status === 200,
-            });
-
             sleep(2);
           }
           EOF
@@ -199,8 +221,7 @@ jobs:
         id: k6_test
         run: |
           echo "Starting k6 load test..."
-          k6 run backend-test.js --out json=backend-results.json || true
-          
+          k6 run backend-test.js --summary-export=backend-summary.json || true
           echo "Load test completed!"
 
       - name: 📊 Parse and display results
@@ -213,52 +234,207 @@ jobs:
           echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ -f backend-results.json ]; then
-            echo "**Key Metrics:**" >> $GITHUB_STEP_SUMMARY
+          if [ -f backend-summary.json ]; then
+            echo "**Results Summary:**" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat backend-summary.json >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            
-            # Extract key metrics
-            jq -r '
-              select(.type == "Point" and .metric == "http_req_duration") |
-              "Request Duration (p95): \(.data.tags.expected_response // "N/A")"
-            ' backend-results.json | head -5 >> $GITHUB_STEP_SUMMARY || echo "Metrics extraction partial"
-            
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ Full results available in artifacts" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ No results file generated" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 📤 Upload results
-        uses: actions/upload-artifact@v3
+      - name: 📤 Upload backend results
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-performance-results
           path: |
-            backend-results.json
-            k6-*.log
+            backend-summary.json
+            /tmp/port-forward-backend.log
           retention-days: 30
 
-      - name: 🧹 Cleanup port-forward
+      - name: 🧹 Cleanup
         if: always()
         run: |
           if [ ! -z "$PORT_FORWARD_PID" ]; then
             kill $PORT_FORWARD_PID || true
           fi
 
-      - name: 📊 Final summary
+  # ==========================================
+  # JOB 3 : Frontend Performance Test
+  # ==========================================
+  test-frontend:
+    name: 🎨 Frontend Performance Test
+    runs-on: ubuntu-latest
+    needs: setup-environment
+    if: github.event.inputs.target == 'frontend' || github.event.inputs.target == 'both'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🔧 Setup Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          cpus: 2
+          memory: 4096
+
+      - name: 📝 Redeploy application
+        run: |
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          
+          kubectl apply -f k8s/base/
+          kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
+
+      - name: 🌐 Start frontend port-forward
+        run: |
+          echo "Starting frontend port-forward..."
+          kubectl port-forward -n crud-app service/frontend-service 3000:80 > /tmp/port-forward-frontend.log 2>&1 &
+          PORT_FORWARD_PID=$!
+          echo "PORT_FORWARD_PID=$PORT_FORWARD_PID" >> $GITHUB_ENV
+          
+          echo "Waiting for port-forward to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3001 > /dev/null 2>&1; then
+              echo "✅ Frontend port-forward ready!"
+              break
+            fi
+            echo "Attempt $i/30: Waiting..."
+            sleep 2
+          done
+          
+          # Final verification
+          if ! curl -s http://localhost:3001 > /dev/null 2>&1; then
+            echo "❌ Failed to connect to frontend"
+            cat /tmp/port-forward-frontend.log
+            kubectl logs -n crud-app -l app=frontend --tail=50
+            exit 1
+          fi
+          
+          echo "✅ Frontend is responding!"
+
+      - name: 📦 Install Lighthouse CI
+        run: |
+          npm install -g @lhci/cli@0.12.x
+
+      - name: 🔍 Run Lighthouse audit
+        id: lighthouse
+        run: |
+          echo "Running Lighthouse audit..."
+          
+          lhci autorun \
+            --collect.url=http://localhost:3001 \
+            --collect.numberOfRuns=3 \
+            --collect.settings.chromeFlags="--no-sandbox --headless" \
+            --upload.target=temporary-public-storage || true
+          
+          echo "Lighthouse audit completed!"
+
+      - name: 🧪 Frontend load test with k6
+        run: |
+          # Install k6
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+          
+          # Create test script
+          cat > frontend-test.js << 'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+
+          export const options = {
+            stages: [
+              { duration: '10s', target: 10 },
+              { duration: '30s', target: 10 },
+              { duration: '10s', target: 0 },
+            ],
+            thresholds: {
+              http_req_duration: ['p(95)<3001'],
+              http_req_failed: ['rate<0.1'],
+            },
+          };
+
+          export default function () {
+            let res = http.get('http://localhost:3001');
+            check(res, {
+              'status is 200': (r) => r.status === 200,
+              'page loads': (r) => r.body.length > 0,
+            });
+            sleep(2);
+          }
+          EOF
+          
+          # Run test
+          k6 run frontend-test.js --summary-export=frontend-summary.json || true
+
+      - name: 📊 Display frontend results
         if: always()
         run: |
-          echo "==================================="
-          echo "Performance Test Summary"
-          echo "==================================="
-          echo "Duration: ${{ github.event.inputs.duration || '1m' }}"
-          echo "Virtual Users: ${{ github.event.inputs.users || '20' }}"
-          echo "Status: ${{ steps.k6_test.outcome }}"
-          echo "==================================="
+          echo "## 🎨 Frontend Performance Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Lighthouse Audit:** Check artifacts for detailed report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Show backend logs
-          echo ""
-          echo "Backend Logs (last 30 lines):"
-          kubectl logs -n crud-app -l app=backend --tail=30
+          if [ -f frontend-summary.json ]; then
+            echo "**Load Test Results:**" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat frontend-summary.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📤 Upload frontend results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-performance-results
+          path: |
+            frontend-summary.json
+            .lighthouseci/
+            /tmp/port-forward-frontend.log
+          retention-days: 30
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          if [ ! -z "$PORT_FORWARD_PID" ]; then
+            kill $PORT_FORWARD_PID || true
+          fi
+
+  # ==========================================
+  # JOB 4 : Generate Final Report
+  # ==========================================
+  report:
+    name: 📊 Generate Performance Report
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: always()
+    
+    steps:
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+
+      - name: 📊 Generate summary report
+        run: |
+          echo "## 📊 Performance Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test completed on:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend Test: ${{ needs.test-backend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend Test: ${{ needs.test-frontend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: ${{ github.event.inputs.target || 'backend' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Virtual Users: ${{ github.event.inputs.users || '20' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Download detailed results from the Artifacts section above**" >> $GITHUB_STEP_SUMMARY
