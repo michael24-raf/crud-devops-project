@@ -1,7 +1,7 @@
 # ==================================
 # STAGE 1: Dependencies
 # ==================================
-FROM node:18-alpine AS dependencies
+FROM node:20-alpine AS dependencies  
 
 # Créer le répertoire de travail
 WORKDIR /app
@@ -15,7 +15,7 @@ RUN npm ci --only=production
 # ==================================
 # STAGE 2: Build
 # ==================================
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build  
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ COPY . .
 # ==================================
 # STAGE 3: Production
 # ==================================
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production  
 
 # Installer dumb-init pour gérer les signaux
 RUN apk add --no-cache dumb-init
