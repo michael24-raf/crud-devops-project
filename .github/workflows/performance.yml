@@ -21,18 +21,19 @@ on:
         required: true
         default: '20'
   schedule:
-    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM
+    - cron: '0 2 * * 1'
 
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
 jobs:
   # ==========================================
-  # JOB 1 : Setup Environment
+  # JOB : Backend Performance Test
   # ==========================================
-  setup-environment:
-    name: 🔧 Setup Test Environment
+  test-backend:
+    name: ⚡ Backend Performance Test
     runs-on: ubuntu-latest
+    if: github.event.inputs.target == 'backend' || github.event.inputs.target == 'both' || github.event_name == 'schedule'
     
     steps:
       - name: 📥 Checkout code
@@ -46,46 +47,43 @@ jobs:
           memory: 4096
           kubernetes-version: v1.28.0
 
-      - name: ☸️ Verify Kubernetes
-        run: |
-          kubectl version --client
-          kubectl cluster-info
-          kubectl get nodes
-
       - name: 📝 Update manifests
         run: |
           sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
           sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
 
-      - name: 🚀 Deploy full application
+      - name: 🚀 Deploy application (ORDERED)
         run: |
-          echo "🗂️ Creating namespace..."
+          echo "🗂️ Step 1: Create namespace"
           kubectl apply -f k8s/base/namespace.yaml
           
-          echo "🔐 Creating secrets and configmaps..."
+          echo "⏳ Waiting for namespace to be ready..."
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/crud-app --timeout=30s
+          sleep 5
+          
+          echo "🔐 Step 2: Create secrets and configmaps"
           kubectl apply -f k8s/base/postgres-secret.yaml
           kubectl apply -f k8s/base/postgres-configmap.yaml
           kubectl apply -f k8s/base/backend-configmap.yaml
+          sleep 3
           
-          echo "💾 Creating PVC..."
+          echo "💾 Step 3: Create PVC"
           kubectl apply -f k8s/base/postgres-pvc.yaml
+          sleep 3
           
-          echo "🐘 Deploying PostgreSQL..."
+          echo "🐘 Step 4: Deploy PostgreSQL"
           kubectl apply -f k8s/base/postgres-deployment.yaml
           kubectl apply -f k8s/base/postgres-service.yaml
+          echo "⏳ Waiting for PostgreSQL..."
           kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
           
-          echo "🔨 Deploying Backend..."
+          echo "🔨 Step 5: Deploy Backend"
           kubectl apply -f k8s/base/backend-deployment.yaml
           kubectl apply -f k8s/base/backend-service.yaml
+          echo "⏳ Waiting for Backend..."
           kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
           
-          echo "🎨 Deploying Frontend..."
-          kubectl apply -f k8s/base/frontend-deployment.yaml
-          kubectl apply -f k8s/base/frontend-service.yaml
-          kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
-          
-          echo "✅ All services deployed!"
+          echo "✅ Backend deployment complete!"
 
       - name: 🔍 Verify deployment
         run: |
@@ -94,35 +92,6 @@ jobs:
           echo "==================================="
           kubectl get all -n crud-app
           kubectl get pods -n crud-app -o wide
-
-  # ==========================================
-  # JOB 2 : Backend Performance Test
-  # ==========================================
-  test-backend:
-    name: ⚡ Backend Performance Test
-    runs-on: ubuntu-latest
-    needs: setup-environment
-    if: github.event.inputs.target == 'backend' || github.event.inputs.target == 'both' || github.event_name == 'schedule'
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🔧 Setup Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          driver: docker
-          cpus: 2
-          memory: 4096
-
-      - name: 📝 Redeploy application
-        run: |
-          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
-          sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
-          
-          kubectl apply -f k8s/base/
-          kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
-          kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
 
       - name: 🌐 Start backend port-forward
         run: |
@@ -141,22 +110,17 @@ jobs:
             sleep 2
           done
           
-          # Final verification
           if ! curl -s http://localhost:5000/health > /dev/null 2>&1; then
             echo "❌ Failed to connect to backend"
             cat /tmp/port-forward-backend.log
             kubectl logs -n crud-app -l app=backend --tail=50
             exit 1
           fi
-          
-          echo "✅ Backend is responding!"
 
       - name: 🧪 Test backend connectivity
         run: |
-          echo "Testing backend health endpoint..."
           response=$(curl -s http://localhost:5000/health)
           echo "Response: $response"
-          
           if echo "$response" | grep -q "success"; then
             echo "✅ Backend health check passed!"
           else
@@ -197,7 +161,6 @@ jobs:
           const BASE_URL = 'http://localhost:5000';
 
           export default function () {
-            // Test 1: Health check
             let healthRes = http.get(`${BASE_URL}/health`);
             let healthCheck = check(healthRes, {
               'health check status 200': (r) => r.status === 200,
@@ -206,7 +169,6 @@ jobs:
 
             sleep(1);
 
-            // Test 2: Get all users
             let usersRes = http.get(`${BASE_URL}/api/users`);
             let usersCheck = check(usersRes, {
               'get users status 200': (r) => r.status === 200,
@@ -218,30 +180,27 @@ jobs:
           EOF
 
       - name: 🚀 Run k6 load test
-        id: k6_test
         run: |
           echo "Starting k6 load test..."
           k6 run backend-test.js --summary-export=backend-summary.json || true
-          echo "Load test completed!"
 
-      - name: 📊 Parse and display results
+      - name: 📊 Display results
         if: always()
         run: |
           echo "## ⚡ Backend Performance Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Test Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
           echo "- Virtual Users: ${{ github.event.inputs.users || 20 }}" >> $GITHUB_STEP_SUMMARY
           echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
           if [ -f backend-summary.json ]; then
-            echo "**Results Summary:**" >> $GITHUB_STEP_SUMMARY
+            echo "**Results:**" >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
             cat backend-summary.json >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 📤 Upload backend results
+      - name: 📤 Upload results
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -259,12 +218,11 @@ jobs:
           fi
 
   # ==========================================
-  # JOB 3 : Frontend Performance Test
+  # JOB : Frontend Performance Test
   # ==========================================
   test-frontend:
     name: 🎨 Frontend Performance Test
     runs-on: ubuntu-latest
-    needs: setup-environment
     if: github.event.inputs.target == 'frontend' || github.event.inputs.target == 'both'
     
     steps:
@@ -283,14 +241,51 @@ jobs:
           cpus: 2
           memory: 4096
 
-      - name: 📝 Redeploy application
+      - name: 📝 Update manifests
         run: |
           sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
           sed -i "s|michael24-raf|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+
+      - name: 🚀 Deploy application (ORDERED)
+        run: |
+          echo "🗂️ Step 1: Create namespace"
+          kubectl apply -f k8s/base/namespace.yaml
           
-          kubectl apply -f k8s/base/
+          echo "⏳ Waiting for namespace to be ready..."
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/crud-app --timeout=30s
+          sleep 5
+          
+          echo "🔐 Step 2: Create secrets and configmaps"
+          kubectl apply -f k8s/base/postgres-secret.yaml
+          kubectl apply -f k8s/base/postgres-configmap.yaml
+          kubectl apply -f k8s/base/backend-configmap.yaml
+          sleep 3
+          
+          echo "💾 Step 3: Create PVC"
+          kubectl apply -f k8s/base/postgres-pvc.yaml
+          sleep 3
+          
+          echo "🐘 Step 4: Deploy PostgreSQL"
+          kubectl apply -f k8s/base/postgres-deployment.yaml
+          kubectl apply -f k8s/base/postgres-service.yaml
+          kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=180s
+          
+          echo "🔨 Step 5: Deploy Backend"
+          kubectl apply -f k8s/base/backend-deployment.yaml
+          kubectl apply -f k8s/base/backend-service.yaml
           kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
+          
+          echo "🎨 Step 6: Deploy Frontend"
+          kubectl apply -f k8s/base/frontend-deployment.yaml
+          kubectl apply -f k8s/base/frontend-service.yaml
           kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
+          
+          echo "✅ Full deployment complete!"
+
+      - name: 🔍 Verify deployment
+        run: |
+          kubectl get all -n crud-app
+          kubectl get pods -n crud-app -o wide
 
       - name: 🌐 Start frontend port-forward
         run: |
@@ -299,9 +294,8 @@ jobs:
           PORT_FORWARD_PID=$!
           echo "PORT_FORWARD_PID=$PORT_FORWARD_PID" >> $GITHUB_ENV
           
-          echo "Waiting for port-forward to be ready..."
           for i in {1..30}; do
-            if curl -s http://localhost:3001 > /dev/null 2>&1; then
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
               echo "✅ Frontend port-forward ready!"
               break
             fi
@@ -309,43 +303,32 @@ jobs:
             sleep 2
           done
           
-          # Final verification
-          if ! curl -s http://localhost:3001 > /dev/null 2>&1; then
+          if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
             echo "❌ Failed to connect to frontend"
             cat /tmp/port-forward-frontend.log
             kubectl logs -n crud-app -l app=frontend --tail=50
             exit 1
           fi
-          
-          echo "✅ Frontend is responding!"
 
       - name: 📦 Install Lighthouse CI
-        run: |
-          npm install -g @lhci/cli@0.12.x
+        run: npm install -g @lhci/cli@0.12.x
 
       - name: 🔍 Run Lighthouse audit
-        id: lighthouse
         run: |
-          echo "Running Lighthouse audit..."
-          
           lhci autorun \
-            --collect.url=http://localhost:3001 \
+            --collect.url=http://localhost:3000 \
             --collect.numberOfRuns=3 \
             --collect.settings.chromeFlags="--no-sandbox --headless" \
             --upload.target=temporary-public-storage || true
-          
-          echo "Lighthouse audit completed!"
 
-      - name: 🧪 Frontend load test with k6
+      - name: 🧪 Frontend load test
         run: |
-          # Install k6
           sudo gpg -k
           sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
           echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
           sudo apt-get update
           sudo apt-get install k6
           
-          # Create test script
           cat > frontend-test.js << 'EOF'
           import http from 'k6/http';
           import { check, sleep } from 'k6';
@@ -357,13 +340,13 @@ jobs:
               { duration: '10s', target: 0 },
             ],
             thresholds: {
-              http_req_duration: ['p(95)<3001'],
+              http_req_duration: ['p(95)<3000'],
               http_req_failed: ['rate<0.1'],
             },
           };
 
           export default function () {
-            let res = http.get('http://localhost:3001');
+            let res = http.get('http://localhost:3000');
             check(res, {
               'status is 200': (r) => r.status === 200,
               'page loads': (r) => r.body.length > 0,
@@ -372,25 +355,23 @@ jobs:
           }
           EOF
           
-          # Run test
           k6 run frontend-test.js --summary-export=frontend-summary.json || true
 
-      - name: 📊 Display frontend results
+      - name: 📊 Display results
         if: always()
         run: |
           echo "## 🎨 Frontend Performance Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Lighthouse Audit:** Check artifacts for detailed report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
+          echo "**Lighthouse Audit:** Check artifacts" >> $GITHUB_STEP_SUMMARY
           if [ -f frontend-summary.json ]; then
-            echo "**Load Test Results:**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Load Test:**" >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
             cat frontend-summary.json >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: 📤 Upload frontend results
+      - name: 📤 Upload results
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -407,34 +388,3 @@ jobs:
           if [ ! -z "$PORT_FORWARD_PID" ]; then
             kill $PORT_FORWARD_PID || true
           fi
-
-  # ==========================================
-  # JOB 4 : Generate Final Report
-  # ==========================================
-  report:
-    name: 📊 Generate Performance Report
-    runs-on: ubuntu-latest
-    needs: [test-backend, test-frontend]
-    if: always()
-    
-    steps:
-      - name: 📥 Download all artifacts
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-
-      - name: 📊 Generate summary report
-        run: |
-          echo "## 📊 Performance Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Test completed on:** $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Backend Test: ${{ needs.test-backend.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Frontend Test: ${{ needs.test-frontend.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Target: ${{ github.event.inputs.target || 'backend' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Duration: ${{ github.event.inputs.duration || '1m' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Virtual Users: ${{ github.event.inputs.users || '20' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Download detailed results from the Artifacts section above**" >> $GITHUB_STEP_SUMMARY
