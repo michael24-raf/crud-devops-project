@@ -113,7 +113,7 @@ Le pipeline GitHub Actions s'exécute automatiquement à chaque push sur `main` 
 
 ## 🌐 URLs
 
-- **Frontend**: http://localhost:3001
+- **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:5000
 - **Health Check**: http://localhost:5000/health
 
