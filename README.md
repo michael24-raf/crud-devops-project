@@ -13,7 +13,7 @@ Projet complet d'apprentissage DevOps avec CI/CD, containerisation Docker, et or
 ## 📚 Stack Technique
 
 ### Backend
-- **Runtime**: Node.js 18
+- **Runtime**: Node.js 20
 - **Framework**: Express.js
 - **ORM**: Sequelize
 - **Base de données**: PostgreSQL 15
@@ -43,7 +43,7 @@ Projet complet d'apprentissage DevOps avec CI/CD, containerisation Docker, et or
 ## 🚀 Démarrage Rapide
 
 ### Prérequis
-- Node.js 18+
+- Node.js 20+
 - Docker & Docker Compose
 - Kubernetes (Minikube)
 - kubectl
@@ -113,7 +113,7 @@ Le pipeline GitHub Actions s'exécute automatiquement à chaque push sur `main` 
 
 ## 🌐 URLs
 
-- **Frontend**: http://localhost:3000
+- **Frontend**: http://localhost:3001
 - **Backend API**: http://localhost:5000
 - **Health Check**: http://localhost:5000/health
 
