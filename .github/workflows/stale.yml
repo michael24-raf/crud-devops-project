@@ -1,0 +1,28 @@
+name: Mark Stale Issues
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v8
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: |
+            Cette issue semble inactive. 
+            Elle sera fermée dans 7 jours si aucune activité n'est détectée.
+          stale-pr-message: |
+            Cette PR semble inactive.
+            Elle sera fermée dans 7 jours si aucune activité n'est détectée.
+          close-issue-message: 'Issue fermée pour inactivité'
+          close-pr-message: 'PR fermée pour inactivité'
+          days-before-stale: 60
+          days-before-close: 7
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          exempt-issue-labels: 'keep-open,wip'
+          exempt-pr-labels: 'keep-open,wip'

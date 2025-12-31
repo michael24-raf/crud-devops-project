@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/michael24-raf/crud-devops-project/discussions
+    about: Pour poser des questions générales
+  - name: 📚 Documentation
+    url: https://github.com/michael24-raf/crud-devops-project#readme
+    about: Consulter la documentation

@@ -1,0 +1,12 @@
+# Assignés automatiquement aux PRs
+addReviewers: true
+addAssignees: author
+
+reviewers:
+  - michael24-raf
+
+numberOfReviewers: 1
+
+skipKeywords:
+  - wip
+  - WIP

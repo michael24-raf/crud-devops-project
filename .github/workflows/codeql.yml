@@ -1,0 +1,67 @@
+name: CodeQL Advanced
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6AM
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+
+
+## 📊 STRUCTURE COMPLÈTE RECOMMANDÉE
+
+# .github/
+# ├── workflows/
+# │   ├── ci-cd-pipeline.yml        ✅ Présent
+# │   ├── backend-ci.yml            ✅ Présent
+# │   ├── frontend-ci.yml           ✅ Présent
+# │   ├── docker-build.yml          ✅ Présent
+# │   ├── deploy-k8s.yml            ✅ Présent
+# │   ├── rollback.yml              ✅ Présent
+# │   ├── cleanup.yml               ✅ Présent
+# │   ├── tests.yml                 ✅ Présent
+# │   ├── security-scan.yml         ✅ Présent
+# │   ├── performance.yml           ✅ Présent
+# │   ├── release.yml               ✅ Présent
+# │   ├── stale.yml                 ⚪ Optionnel
+# │   ├── auto-assign.yml           ⚪ Optionnel
+# │   └── codeql.yml                ⚪ Optionnel
+# ├── ISSUE_TEMPLATE/
+# │   ├── bug_report.yml            ⚪ Recommandé
+# │   ├── feature_request.yml       ⚪ Recommandé
+# │   └── config.yml                ⚪ Recommandé
+# ├── pull_request_template.md      ⚪ Recommandé
+# ├── dependabot.yml                ⚪ Recommandé
+# └── auto-assign.yml               ⚪ Optionnel
