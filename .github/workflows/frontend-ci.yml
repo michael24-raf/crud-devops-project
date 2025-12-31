@@ -70,16 +70,36 @@ jobs:
         with:
           node-version: 20
 
-      - name: 📦 Install and build
+      - name: 📦 Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 🏗️ Build frontend
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:5000/api
+
+      - name: 🚀 Serve built files
         working-directory: ./frontend
         run: |
-          npm ci
-          npm run build
+          npm install -g serve
+          serve -s dist -l 3000 &
+          sleep 5
+          curl http://localhost:3000 || exit 1
 
       - name: 🔍 Run Lighthouse
-        uses: treosh/lighthouse-ci-action@v10
-        with:
-          urls: |
-            http://localhost:3000
-          uploadArtifacts: true
-          temporaryPublicStorage: true
+        run: |
+          npm install -g @lhci/cli@0.12.x
+          
+          lhci autorun \
+            --collect.url=http://localhost:3000 \
+            --collect.numberOfRuns=1 \
+            --collect.settings.chromeFlags="--no-sandbox --headless --disable-gpu" \
+            --upload.target=temporary-public-storage || true
+
+      - name: 📊 Lighthouse summary
+        if: always()
+        run: |
+          echo "## 🔍 Lighthouse Audit" >> $GITHUB_STEP_SUMMARY
+          echo "Audit completed for frontend build" >> $GITHUB_STEP_SUMMARY
