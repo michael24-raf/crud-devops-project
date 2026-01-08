@@ -1,22 +1,23 @@
-const app = require('./src/app');
+require('dotenv').config();
+const app = require('./src/app'); // ⚠️ chemin CRUCIAL
+
 const { testConnection } = require('./src/config/database');
 const { syncDatabase } = require('./src/models');
 
 const PORT = process.env.PORT || 5000;
 
-// Fonction de démarrage
 const startServer = async () => {
   try {
-    // Test connexion DB
+    // Vérifier la DB
     await testConnection();
-    
-    // Synchronisation DB
     await syncDatabase();
-    
+
     // Démarrage serveur
     app.listen(PORT, () => {
+      console.log('✅ src/app.js chargé');
       console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`📈 Metrics: http://localhost:${PORT}/metrics`);
       console.log(`👥 API Users: http://localhost:${PORT}/api/users`);
     });
   } catch (error) {

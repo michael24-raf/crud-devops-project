@@ -1,20 +1,30 @@
 const { User } = require('../models');
+const { usersTotal } = require('../middlewares/metrics');
+
+// 🔹 Mise à jour de la métrique users
+const updateUsersMetric = async () => {
+  try {
+    const count = await User.count();
+    usersTotal.set(count);
+  } catch (error) {
+    console.error('Erreur mise à jour métrique users:', error);
+  }
+};
 
 // CREATE - Créer un utilisateur
 exports.createUser = async (req, res, next) => {
   try {
     const { name, email, age } = req.body;
 
-    // Validation basique
     if (!name || !email) {
       return res.status(400).json({
         success: false,
-        message: 'Le nom et l\'email sont obligatoires'
+        message: "Le nom et l'email sont obligatoires"
       });
     }
 
-    // Création de l'utilisateur
     const user = await User.create({ name, email, age });
+    await updateUsersMetric();
 
     res.status(201).json({
       success: true,
@@ -33,6 +43,8 @@ exports.getAllUsers = async (req, res, next) => {
       order: [['created_at', 'DESC']]
     });
 
+    await updateUsersMetric();
+
     res.status(200).json({
       success: true,
       count: users.length,
@@ -43,12 +55,36 @@ exports.getAllUsers = async (req, res, next) => {
   }
 };
 
+// DELETE - Supprimer un utilisateur
+exports.deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur introuvable'
+      });
+    }
+
+    await user.destroy();
+    await updateUsersMetric();
+
+    res.status(200).json({
+      success: true,
+      message: 'Utilisateur supprimé'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 // READ ONE - Récupérer un utilisateur par ID
 exports.getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const user = await User.findByPk(id);
 
+    const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -72,7 +108,6 @@ exports.updateUser = async (req, res, next) => {
     const { name, email, age } = req.body;
 
     const user = await User.findByPk(id);
-
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -80,37 +115,12 @@ exports.updateUser = async (req, res, next) => {
       });
     }
 
-    // Mise à jour
     await user.update({ name, email, age });
 
     res.status(200).json({
       success: true,
       message: 'Utilisateur mis à jour',
       data: user
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// DELETE - Supprimer un utilisateur
-exports.deleteUser = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findByPk(id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'Utilisateur introuvable'
-      });
-    }
-
-    await user.destroy();
-
-    res.status(200).json({
-      success: true,
-      message: 'Utilisateur supprimé'
     });
   } catch (error) {
     next(error);

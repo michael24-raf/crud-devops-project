@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mckl1723}
       POSTGRES_DB: ${DB_NAME:-crud_devops_db}
     ports:
       - "5433:5432"
@@ -40,7 +40,7 @@ services:
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-crud_devops_db}
       DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-mckl1723}
     ports:
       - "5000:5000"
     depends_on:

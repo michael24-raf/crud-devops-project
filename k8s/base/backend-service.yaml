@@ -5,6 +5,7 @@ metadata:
   namespace: crud-app
   labels:
     app: backend
+    monitoring: "true"
 spec:
   type: ClusterIP
   ports:
