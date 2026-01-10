@@ -94,7 +94,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🚀 CRUD DevOps - Gestion des Utilisateurs</h1>
+        <h1>🚀 CRUD DevOps - Gestion Utilisateurs</h1>
         <div className={`api-status ${apiStatus}`}>
           <span className="status-dot"></span>
           <span>
