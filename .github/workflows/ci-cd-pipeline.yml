@@ -216,8 +216,8 @@ jobs:
 
       - name: 📝 Replace Docker Hub username in manifests
         run: |
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
 
       - name: 🗂️ Create namespace
         run: |
