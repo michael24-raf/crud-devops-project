@@ -74,8 +74,8 @@ jobs:
 
       - name: 📝 Update manifests
         run: |
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
-          sed -i "s|TON_USERNAME_DOCKERHUB|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|michael1723|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael1723|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
           sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/backend-deployment.yaml
           sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/frontend-deployment.yaml
 
