@@ -17,31 +17,47 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: michael1723/crud-frontend:${IMAGE_TAG}
+          image: michael1723/crud-frontend:latest # sera remplacé dans workflow
           imagePullPolicy: Always
           ports:
-            - containerPort: 80
-              name: http
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "200m"
-          livenessProbe:
+            - containerPort: 5173
+          env:
+            - name: VITE_API_URL
+              value: "http://backend-service:5000/api"
+          # ==================================
+          # STARTUP PROBE
+          # ==================================
+          startupProbe:
             httpGet:
               path: /
-              port: 80
-            initialDelaySeconds: 10
+              port: 5173
+            failureThreshold: 30
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+          # ==================================
+          # READINESS PROBE
+          # ==================================
           readinessProbe:
             httpGet:
               path: /
-              port: 80
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
+              port: 5173
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+          # ==================================
+          # LIVENESS PROBE
+          # ==================================
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5173
+            initialDelaySeconds: 60
+            periodSeconds: 20
             failureThreshold: 3
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+      restartPolicy: Always
