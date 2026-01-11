@@ -99,7 +99,7 @@ const UserForm = ({ onSubmit, userToEdit, onCancelEdit }) => {
       
       <form onSubmit={handleSubmit} className="user-form">
         <div className="form-group">
-          <label htmlFor="name">alefa  *</label>
+          <label htmlFor="name">alefa lesy *</label>
           <input
             type="text"
             id="name"
