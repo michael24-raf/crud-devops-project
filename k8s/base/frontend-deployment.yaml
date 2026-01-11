@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: michael1723/crud-frontend:latest # sera remplacé dans workflow
+          image: michael1723/crud-frontend:latest # sera remplacé par workflow GitHub Actions
           imagePullPolicy: Always
           ports:
             - containerPort: 5173
@@ -31,7 +31,7 @@ spec:
             httpGet:
               path: /
               port: 5173
-            failureThreshold: 30
+            failureThreshold: 30   # attend jusqu’à 5 minutes
             periodSeconds: 10
           # ==================================
           # READINESS PROBE
