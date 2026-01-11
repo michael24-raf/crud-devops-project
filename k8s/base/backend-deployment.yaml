@@ -15,51 +15,19 @@ spec:
       labels:
         app: backend
     spec:
-      initContainers:
-        - name: wait-for-postgres
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              until nc -z postgres-service 5432; do
-                echo "Waiting for PostgreSQL..."
-                sleep 2
-              done
-              echo "PostgreSQL is ready!"
       containers:
         - name: backend
-          image: michael1723/crud-backend:${IMAGE_TAG}
+          image: michael1723/crud-backend:latest # sera remplacé par sed dans le workflow
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
-              name: http
           env:
             - name: NODE_ENV
-              valueFrom:
-                configMapKeyRef:
-                  name: backend-config
-                  key: NODE_ENV
-            - name: PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: backend-config
-                  key: PORT
+              value: "production"
             - name: DB_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: backend-config
-                  key: DB_HOST
+              value: "postgres-service"
             - name: DB_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: backend-config
-                  key: DB_PORT
-            - name: DB_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_DB
+              value: "5432"
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -70,26 +38,45 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-          livenessProbe:
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+          # ==================================
+          # STARTUP PROBE (évite crash prématuré)
+          # ==================================
+          startupProbe:
             httpGet:
               path: /health
               port: 5000
-            initialDelaySeconds: 30
+            failureThreshold: 30  # attend jusqu’à 5 minutes si nécessaire
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+          # ==================================
+          # READINESS PROBE
+          # ==================================
           readinessProbe:
             httpGet:
               path: /health
               port: 5000
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 3
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+          # ==================================
+          # LIVENESS PROBE
+          # ==================================
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 20
             failureThreshold: 3
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+      restartPolicy: Always
