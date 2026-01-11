@@ -1,125 +1,121 @@
-name: Deploy to Kubernetes
+name: Deploy-Kubernetes
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      version:
+        description: 'Image version/tag to deploy'
+        required: true
+        default: 'latest'
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  NAMESPACE: crud-app
 
 jobs:
-  deploy-k8s:
-    name: "☸️ Deploy to Kubernetes"
+  build-and-push:
+    name: 🐳 Build & Push Docker Images
     runs-on: ubuntu-latest
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    env:
+      DOCKER_USERNAME: michael1723  # ton username DockerHub
 
     steps:
-      - name: "📥 Checkout code"
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: "🔧 Setup Minikube"
+      - name: 🟢 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: 🔑 Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: ⚡ Set Docker image version
+        run: |
+          # Génère un tag unique basé sur date+heure
+          echo "VERSION=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+
+      - name: 🏗️ Build & push backend image
+        run: |
+          docker build -t $DOCKER_USERNAME/crud-backend:$VERSION ./backend
+          docker push $DOCKER_USERNAME/crud-backend:$VERSION
+
+      - name: 🏗️ Build & push frontend image
+        run: |
+          docker build -t $DOCKER_USERNAME/crud-frontend:$VERSION ./frontend
+          docker push $DOCKER_USERNAME/crud-frontend:$VERSION
+
+
+  deploy:
+    name: 🚀 Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Minikube
         uses: medyagh/setup-minikube@latest
         with:
           driver: docker
           cpus: 2
           memory: 4096
-          kubernetes-version: v1.28.0
 
-      - name: "☸️ Verify Kubernetes cluster"
+      - name: ☸️ Configure kubectl
         run: |
           kubectl version --client
           kubectl cluster-info
-          kubectl get nodes
 
-      - name: "📝 Replace Docker Hub username in manifests"
+      - name: 📝 Update manifests
         run: |
-          sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
-          sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|michael1723|${{ env.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|michael1723|${{ env.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
+          sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/backend-deployment.yaml
+          sed -i "s|:latest|:${{ github.event.inputs.version }}|g" k8s/base/frontend-deployment.yaml
 
-      - name: "🗂️ Create namespace"
-        run: kubectl apply -f k8s/base/namespace.yaml
-
-      - name: "🔐 Create secrets and configmaps"
+      - name: 🚀 Deploy application
         run: |
+          # Apply all manifests
+          kubectl apply -f k8s/base/namespace.yaml
           kubectl apply -f k8s/base/postgres-secret.yaml
           kubectl apply -f k8s/base/postgres-configmap.yaml
           kubectl apply -f k8s/base/backend-configmap.yaml
-
-      - name: "💾 Create PVC"
-        run: kubectl apply -f k8s/base/postgres-pvc.yaml
-
-      - name: "🐘 Deploy PostgreSQL"
-        run: |
+          kubectl apply -f k8s/base/postgres-pvc.yaml
           kubectl apply -f k8s/base/postgres-deployment.yaml
           kubectl apply -f k8s/base/postgres-service.yaml
-          echo "⏳ Waiting for PostgreSQL to be ready..."
-          kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=300s
-
-      - name: "🔨 Deploy Backend"
-        run: |
+          
+          kubectl wait --for=condition=ready pod -l app=postgres -n ${{ env.NAMESPACE }} --timeout=180s
+          
           kubectl apply -f k8s/base/backend-deployment.yaml
           kubectl apply -f k8s/base/backend-service.yaml
-          echo "⏳ Waiting for Backend to be ready..."
-          kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=300s
-
-      - name: "🎨 Deploy Frontend"
-        run: |
+          
+          kubectl wait --for=condition=ready pod -l app=backend -n ${{ env.NAMESPACE }} --timeout=180s
+          
           kubectl apply -f k8s/base/frontend-deployment.yaml
           kubectl apply -f k8s/base/frontend-service.yaml
-          echo "⏳ Waiting for Frontend to be ready..."
-          kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=300s
+          
+          kubectl wait --for=condition=ready pod -l app=frontend -n ${{ env.NAMESPACE }} --timeout=180s
 
-      - name: "🔍 Debug Backend Pods"
-        if: failure()
+      - name: ✅ Verify deployment
         run: |
-          echo "=== Backend Pods ==="
-          kubectl get pods -n crud-app
-          kubectl describe pods -l app=backend -n crud-app
-          kubectl logs -l app=backend -n crud-app --tail=100
+          kubectl get all -n ${{ env.NAMESPACE }}
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
 
-      - name: "🔍 Debug Frontend Pods"
-        if: failure()
+      - name: 📊 Deployment info
         run: |
-          echo "=== Frontend Pods ==="
-          kubectl get pods -n crud-app
-          kubectl describe pods -l app=frontend -n crud-app
-          kubectl logs -l app=frontend -n crud-app --tail=100
-
-      - name: "✅ Verify deployment"
-        run: |
-          echo "==================================="
-          echo "📊 Deployment Status"
-          echo "==================================="
-          kubectl get all -n crud-app
-          echo ""
-          echo "==================================="
-          echo "🔍 Pod Details"
-          echo "==================================="
-          kubectl get pods -n crud-app -o wide
-          echo ""
-          echo "==================================="
-          echo "📝 Recent Events"
-          echo "==================================="
-          kubectl get events -n crud-app --sort-by='.lastTimestamp' | tail -10
-
-      - name: "🧪 Health check"
-        run: |
-          echo "Testing backend health endpoint..."
-          kubectl port-forward -n crud-app service/backend-service 5000:5000 &
-          sleep 10
-          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health)
-          if [ "$response" -eq 200 ]; then
-            echo "✅ Backend health check passed!"
-          else
-            echo "❌ Backend health check failed with status: $response"
-            exit 1
-          fi
-
-      - name: "📊 Deployment summary"
-        if: success()
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "======================================"
-          echo "Backend Image: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}"
-          echo "Frontend Image: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "======================================"
+          echo "✅ Deployment successful!"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Version: ${{ github.event.inputs.version }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"

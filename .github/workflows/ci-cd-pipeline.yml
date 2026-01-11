@@ -247,28 +247,12 @@ jobs:
           echo "⏳ Waiting for Backend to be ready..."
           kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=180s
 
-
-      - name: 🔍 Debug Backend Pods
-        if: failure()
-        run: |
-         kubectl get pods -n crud-app
-         kubectl describe pods -l app=backend -n crud-app
-         kubectl logs -l app=backend -n crud-app --tail=100
-
       - name: 🎨 Deploy Frontend
         run: |
           kubectl apply -f k8s/base/frontend-deployment.yaml
           kubectl apply -f k8s/base/frontend-service.yaml
           echo "⏳ Waiting for Frontend to be ready..."
           kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=180s
-
-          
-      - name: 🔍 Debug Frontend Pods
-        if: failure()
-        run: |
-          kubectl get pods -n crud-app
-          kubectl describe pods -l app=frontend -n crud-app
-          kubectl logs -l app=frontend -n crud-app --tail=100
 
       - name: ✅ Verify deployment
         run: |
