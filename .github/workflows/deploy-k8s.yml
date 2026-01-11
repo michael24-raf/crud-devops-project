@@ -1,87 +1,118 @@
-name: Deploy-Kubernetes
-
-on:
-  workflow_dispatch:
-
-env:
-  DOCKER_USERNAME: michael1723
-  NAMESPACE: crud-app
-  IMAGE_TAG: ${{ github.sha }}
-
-jobs:
-  build-and-push:
-    name: 🐳 Build & Push Docker Images
-    runs-on: ubuntu-latest
+deploy-k8s:
+    - name: ☸️ Deploy to Kubernetes
+      runs-on: ubuntu-latest
+      needs: [build-backend, build-frontend]
+      if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
 
     steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-      - name: 🟢 Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
+    - name: 🔧 Setup Minikube
+      uses: medyagh/setup-minikube@latest
+      with:
+        driver: docker
+        cpus: 2
+        memory: 4096
+        kubernetes-version: v1.28.0
 
-      - name: 🔑 Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: ☸️ Verify Kubernetes cluster
+      run: |
+        kubectl version --client
+        kubectl cluster-info
+        kubectl get nodes
 
-      - name: 🏗️ Build & Push Backend
-        run: |
-          docker build -t michael1723/crud-backend:${IMAGE_TAG} .
-          docker push michael1723/crud-backend:${IMAGE_TAG}
+    - name: 📝 Replace Docker Hub username in manifests
+      run: |
+        sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/backend-deployment.yaml
+        sed -i "s|michael1723|${{ secrets.DOCKER_USERNAME }}|g" k8s/base/frontend-deployment.yaml
 
-      - name: 🏗️ Build & Push Frontend
-        run: |
-          docker build -t michael1723/crud-frontend:${IMAGE_TAG} ./frontend
-          docker push michael1723/crud-frontend:${IMAGE_TAG}
+    - name: 🗂️ Create namespace
+      run: kubectl apply -f k8s/base/namespace.yaml
 
-  deploy:
-    name: 🚀 Deploy to Kubernetes (Minikube)
-    runs-on: ubuntu-latest
-    needs: build-and-push
+    - name: 🔐 Create secrets and configmaps
+      run: |
+        kubectl apply -f k8s/base/postgres-secret.yaml
+        kubectl apply -f k8s/base/postgres-configmap.yaml
+        kubectl apply -f k8s/base/backend-configmap.yaml
 
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
+    - name: 💾 Create PVC
+      run: kubectl apply -f k8s/base/postgres-pvc.yaml
 
-      - name: 🔧 Setup Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          driver: docker
-          cpus: 2
-          memory: 4096
+    - name: 🐘 Deploy PostgreSQL
+      run: |
+        kubectl apply -f k8s/base/postgres-deployment.yaml
+        kubectl apply -f k8s/base/postgres-service.yaml
+        echo "⏳ Waiting for PostgreSQL to be ready..."
+        kubectl wait --for=condition=ready pod -l app=postgres -n crud-app --timeout=300s
 
-      - name: ☸️ Configure kubectl
-        run: |
-          kubectl cluster-info
+    - name: 🔨 Deploy Backend
+      run: |
+        kubectl apply -f k8s/base/backend-deployment.yaml
+        kubectl apply -f k8s/base/backend-service.yaml
+        echo "⏳ Waiting for Backend to be ready..."
+        kubectl wait --for=condition=ready pod -l app=backend -n crud-app --timeout=300s
 
-      - name: 🚀 Deploy manifests
-        run: |
-          export IMAGE_TAG=${IMAGE_TAG}
+    - name: 🎨 Deploy Frontend
+      run: |
+        kubectl apply -f k8s/base/frontend-deployment.yaml
+        kubectl apply -f k8s/base/frontend-service.yaml
+        echo "⏳ Waiting for Frontend to be ready..."
+        kubectl wait --for=condition=ready pod -l app=frontend -n crud-app --timeout=300s
 
-          kubectl apply -f k8s/base/namespace.yaml
-          kubectl apply -f k8s/base/postgres-secret.yaml
-          kubectl apply -f k8s/base/postgres-configmap.yaml
-          kubectl apply -f k8s/base/backend-configmap.yaml
-          kubectl apply -f k8s/base/postgres-pvc.yaml
-          kubectl apply -f k8s/base/postgres-deployment.yaml
-          kubectl apply -f k8s/base/postgres-service.yaml
+    - name: 🔍 Debug Backend Pods
+      if: failure()
+      run: |
+        echo "=== Backend Pods ==="
+        kubectl get pods -n crud-app
+        kubectl describe pods -l app=backend -n crud-app
+        kubectl logs -l app=backend -n crud-app --tail=100
 
-          kubectl wait --for=condition=ready pod -l app=postgres -n ${NAMESPACE} --timeout=180s
+    - name: 🔍 Debug Frontend Pods
+      if: failure()
+      run: |
+        echo "=== Frontend Pods ==="
+        kubectl get pods -n crud-app
+        kubectl describe pods -l app=frontend -n crud-app
+        kubectl logs -l app=frontend -n crud-app --tail=100
 
-          envsubst < k8s/base/backend-deployment.yaml | kubectl apply -f -
-          kubectl apply -f k8s/base/backend-service.yaml
+    - name: ✅ Verify deployment
+      run: |
+        echo "==================================="
+        echo "📊 Deployment Status"
+        echo "==================================="
+        kubectl get all -n crud-app
+        echo ""
+        echo "==================================="
+        echo "🔍 Pod Details"
+        echo "==================================="
+        kubectl get pods -n crud-app -o wide
+        echo ""
+        echo "==================================="
+        echo "📝 Recent Events"
+        echo "==================================="
+        kubectl get events -n crud-app --sort-by='.lastTimestamp' | tail -10
 
-          kubectl wait --for=condition=ready pod -l app=backend -n ${NAMESPACE} --timeout=180s
+    - name: 🧪 Health check
+      run: |
+        echo "Testing backend health endpoint..."
+        kubectl port-forward -n crud-app service/backend-service 5000:5000 &
+        sleep 10
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/health)
+        if [ "$response" -eq 200 ]; then
+          echo "✅ Backend health check passed!"
+        else
+          echo "❌ Backend health check failed with status: $response"
+          exit 1
+        fi
 
-          envsubst < k8s/base/frontend-deployment.yaml | kubectl apply -f -
-          kubectl apply -f k8s/base/frontend-service.yaml
-
-          kubectl wait --for=condition=ready pod -l app=frontend -n ${NAMESPACE} --timeout=180s
-
-      - name: 📊 Verify deployment
-        run: |
-          kubectl get pods -n ${NAMESPACE}
-          kubectl rollout history deployment/backend-deployment -n ${NAMESPACE}
-          kubectl rollout history deployment/frontend-deployment -n ${NAMESPACE}
+    - name: 📊 Deployment summary
+      if: success()
+      run: |
+        echo "🎉 Deployment successful!"
+        echo "======================================"
+        echo "Backend Image: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}"
+        echo "Frontend Image: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "======================================"
