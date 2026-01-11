@@ -4,9 +4,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   test: {
-    globals: true,              // 👈 permet d'utiliser describe, test, expect sans import
-    environment: 'jsdom',       // 👈 nécessaire pour React
-    setupFiles: './src/setupTests.js', // 👈 AJOUT OBLIGATOIRE
+    globals: true,                 // ✅ describe, test, expect globaux
+    environment: 'jsdom',          // ✅ nécessaire pour React
+    setupFiles: './src/setupTests.js', // ✅ fichier de setup
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

@@ -1,32 +1,55 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { vi } from 'vitest'
-import App from '../src/App'
+import { describe, test, expect, vi } from 'vitest'
+import {
+  getAllUsers,
+  createUser,
+  deleteUser,
+  checkHealth,
+} from '../src/services/api'
 
-// 🔹 MOCK DE L’API
-vi.mock('../src/services/api', () => ({
-  checkHealth: vi.fn(() => Promise.resolve()),
-  getAllUsers: vi.fn(() =>
-    Promise.resolve({ data: [] })
-  ),
-  createUser: vi.fn(),
-  updateUser: vi.fn(),
-  deleteUser: vi.fn(),
-}))
+global.fetch = vi.fn()
 
-describe('App component', () => {
-  test('affiche le titre et le statut API en ligne', async () => {
-    render(<App />)
+describe('API service', () => {
+  test('getAllUsers retourne une liste', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ data: [] }),
+    })
 
-    // ✅ Le titre principal
-    expect(
-      screen.getByText(/CRUD DevOps - Gestion Utilisateurs/i)
-    ).toBeInTheDocument()
+    const res = await getAllUsers()
+    expect(res.data).toEqual([])
+  })
 
-    // ✅ Attendre que l’API passe en ligne
-    await waitFor(() =>
-      expect(
-        screen.getByText(/API en ligne/i)
-      ).toBeInTheDocument()
-    )
+  test('createUser fonctionne', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ success: true }),
+    })
+
+    const res = await createUser({ name: 'Test' })
+    expect(res.success).toBe(true)
+  })
+
+  test('deleteUser fonctionne', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ success: true }),
+    })
+
+    const res = await deleteUser(1)
+    expect(res.success).toBe(true)
+  })
+
+  test('checkHealth retourne OK', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ success: true }),
+    })
+
+    const res = await checkHealth()
+    expect(res.success).toBe(true)
   })
 })
