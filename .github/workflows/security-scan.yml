@@ -233,7 +233,7 @@ jobs:
         uses: ibiqlik/action-yamllint@v3
         with:
           file_or_dir: k8s/
-          config_file: .yamllint.yml
+          config_file: .github/.yamllint.yml
           strict: false
         continue-on-error: true
 
