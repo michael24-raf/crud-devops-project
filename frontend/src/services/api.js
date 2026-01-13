@@ -1,13 +1,13 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Helper pour gérer les erreurs
+// Helper pour gérer les réponses et erreurs
 const handleResponse = async (response) => {
   const data = await response.json();
-  
+
   if (!response.ok) {
     throw new Error(data.message || 'Une erreur est survenue');
   }
-  
+
   return data;
 };
 
@@ -20,7 +20,7 @@ export const createUser = async (userData) => {
     },
     body: JSON.stringify(userData),
   });
-  
+
   return handleResponse(response);
 };
 
@@ -45,7 +45,7 @@ export const updateUser = async (id, userData) => {
     },
     body: JSON.stringify(userData),
   });
-  
+
   return handleResponse(response);
 };
 
@@ -54,7 +54,7 @@ export const deleteUser = async (id) => {
   const response = await fetch(`${API_URL}/users/${id}`, {
     method: 'DELETE',
   });
-  
+
   return handleResponse(response);
 };
 
@@ -63,7 +63,8 @@ export const checkHealth = async () => {
   try {
     const response = await fetch(`${API_URL.replace('/api', '')}/health`);
     return handleResponse(response);
-  } catch (error) {
+  } catch (err) {
+    console.error('Erreur checkHealth:', err);
     throw new Error('API non accessible');
   }
 };

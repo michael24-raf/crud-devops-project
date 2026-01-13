@@ -29,6 +29,7 @@ function App() {
       await api.checkHealth();
       setApiStatus('online');
     } catch (err) {
+      console.error('Erreur checkApiHealth:', err);
       setApiStatus('offline');
       setError('❌ Backend non accessible. Vérifie que le serveur est démarré.');
     }
@@ -52,7 +53,7 @@ function App() {
   const handleSubmit = async (userData) => {
     try {
       setError(null);
-      
+
       if (userToEdit) {
         // Mise à jour
         await api.updateUser(userToEdit.id, userData);
@@ -61,7 +62,7 @@ function App() {
         // Création
         await api.createUser(userData);
       }
-      
+
       // Recharger la liste
       await fetchUsers();
     } catch (err) {
@@ -145,7 +146,9 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>Made with ❤️ for DevOps Learning | Backend: Node.js + PostgreSQL | Frontend: React + Vite</p>
+        <p>
+          Made with ❤️ for DevOps Learning | Backend: Node.js + PostgreSQL | Frontend: React + Vite
+        </p>
       </footer>
     </div>
   );
