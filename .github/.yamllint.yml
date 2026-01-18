@@ -7,12 +7,15 @@ rules:
 
   indentation:
     spaces: 2
-    indent-sequences: true
-
-  comments:
-    min-spaces-from-content: 1
+    indent-sequences: false
 
   document-start: disable
+
+  trailing-spaces:
+    level: warning
+
+  new-line-at-end-of-file:
+    level: warning
 
   truthy:
     allowed-values:
