@@ -24,7 +24,7 @@ RUN npm run build
 # ==================================
 # STAGE 2: Production avec Nginx
 # ==================================
-FROM nginx:1.25-alpine AS production
+FROM nginx:1.29-alpine AS production
 
 # Copier la configuration Nginx personnalisée
 COPY nginx.conf /etc/nginx/conf.d/default.conf
